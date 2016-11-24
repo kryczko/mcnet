@@ -1,0 +1,16 @@
+cell_dimensions:
+  x: 20.0
+  y: 20.0
+  z: 20.0
+
+xyz_file: someFile.xyz
+
+seed: 13
+
+aenet:
+  config: predict.in
+  anns:
+    - { type: O, ann_file: O.ann }
+    - { type: H, ann_file: H.ann }
+
+
