@@ -7,6 +7,6 @@ int main(int argc, char ** argv) {
 	config.printConfig();
 
 	System system(config);
-
+	system.run();
 	return 0;
 }

@@ -15,6 +15,7 @@ class Config {
 
 	std::string xyz_file = config["xyz_file"].as<std::string>();
 	int seed = config["seed"].as<int>();
+	int max_trials = config["max_trials"].as<int>();
 
 public:
 	std::string xyzFile() {
@@ -33,8 +34,12 @@ public:
 		return this->zlat;
 	}
 
-	double getSeed() {
+	int getSeed() {
 		return this->seed;
+	}
+
+	int getMaxTrials() {
+		return this->max_trials;
 	}
 
 	void printConfig() {
@@ -42,6 +47,7 @@ public:
 		std::cout << "XYZ file: " << this->xyz_file << std::endl;
 		std::cout << "Seed: " << this->seed << std::endl;
 	}
+
 };
 
 #endif

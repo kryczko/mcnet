@@ -6,11 +6,7 @@ cell_dimensions:
 xyz_file: someFile.xyz
 
 seed: 13
+max_trials: 1000000
 
-aenet:
-  config: predict.in
-  anns:
-    - { type: O, ann_file: O.ann }
-    - { type: H, ann_file: H.ann }
 
 
