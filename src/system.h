@@ -88,15 +88,10 @@ public:
 
 
     void rdf(string type1, string type2) {
-        int atom_count1 = 0;
-        int atom_count2 = 0;
         for (int i = 0; i < this->n_atoms; i ++) {
             if (this->atom_types[i] == type1) {
-                atom_count1 ++;
-                atom_count2 = 0;
                 for (int j = 0; j < this->atom_types.size(); j ++) {
                     if (this->atom_types[j] == type2 && i != j) {
-                        atom_count2 ++;
                         double dist = this->r(this->atom_positions[i], this->atom_positions[j]);
                         if (dist <= (this->config.rdfMaxDist() + this->config.rdfIncrement())) {
                             int bin = dist / this->config.rdfIncrement(); 
@@ -104,15 +99,6 @@ public:
                         }
                     }
                 }
-            }
-        }
-        int n_bins = this->config.rdfMaxDist() / this->config.rdfIncrement();
-        for (int i = 0; i < n_bins; i ++) {
-            double r_3 = pow((i + 1)*this->config.rdfIncrement(), 3) - pow((i)*this->config.rdfIncrement(), 3);
-            double shell = 4.0 * 3.14159 * r_3 / 3.0;
-            double Vcell = this->config.xDim() * this->config.yDim() * this->config.zDim();
-            for (auto& elem : this->rdfs) {
-                elem.second[i] = (Vcell * elem.second[i]) / (shell * atom_count1 * atom_count2);
             }
         }
     }
@@ -130,9 +116,14 @@ public:
         }
         output << "\n";
         for (int i = 0; i < n_bins; i ++) {
+            double r_3 = pow((i + 1)*this->config.rdfIncrement(), 3) - pow((i)*this->config.rdfIncrement(), 3);
+            double shell = 4.0 * 3.14159 * r_3 / 3.0;
+            double Vcell = this->config.xDim() * this->config.yDim() * this->config.zDim();
             output << (i)*this->config.rdfIncrement() + this->config.rdfIncrement()*0.5 << "  ";
             for (auto& elem : this->rdfs) {
-                output <<  elem.second[i]  << "  ";
+                int atom_count1 = this->atom_counts[string(1, elem.first[0])];
+                int atom_count2 = this->atom_counts[string(1, elem.first[1])];
+                output <<  (Vcell * elem.second[i]) / (shell * atom_count1 * atom_count2)  << "  ";
             }
             output << "\n";
         } 
