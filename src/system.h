@@ -94,8 +94,12 @@ public:
                     if (this->atom_types[j] == type2 && i != j) {
                         double dist = this->r(this->atom_positions[i], this->atom_positions[j]);
                         if (dist <= (this->config.rdfMaxDist() + this->config.rdfIncrement())) {
-                            int bin = dist / this->config.rdfIncrement(); 
-                            this->rdfs.at(type1 + type2)[bin] ++;
+                            int bin = dist / this->config.rdfIncrement();
+                            // cout << this->stats.nTries() << " ";
+                            // cout << type1 << " " << type2 << " ";
+                            // cout << "Before: " << this->rdfs[type1 + type2][bin];  
+                            this->rdfs[type1 + type2][bin] ++;
+                            // cout << " After: " << this->rdfs[type1 + type2][bin] << endl;
                         }
                     }
                 }
@@ -115,15 +119,15 @@ public:
             output << elem.first << "  ";
         }
         output << "\n";
-        for (int i = 0; i < n_bins; i ++) {
-            double r_3 = pow((i + 1)*this->config.rdfIncrement(), 3) - pow((i)*this->config.rdfIncrement(), 3);
+        for (int i = 1; i < n_bins + 1; i ++) {
+            double r_3 = pow((i+1)*this->config.rdfIncrement(), 3) - pow((i)*this->config.rdfIncrement(), 3);
             double shell = 4.0 * 3.14159 * r_3 / 3.0;
             double Vcell = this->config.xDim() * this->config.yDim() * this->config.zDim();
             output << (i)*this->config.rdfIncrement() + this->config.rdfIncrement()*0.5 << "  ";
             for (auto& elem : this->rdfs) {
                 int atom_count1 = this->atom_counts[string(1, elem.first[0])];
                 int atom_count2 = this->atom_counts[string(1, elem.first[1])];
-                output <<  (Vcell * elem.second[i]) / (shell * atom_count1 * atom_count2)  << "  ";
+                output <<  (Vcell * elem.second[i]) / (this->stats.nTries() * shell * atom_count1 * atom_count2)  << "  ";
             }
             output << "\n";
         } 
@@ -261,8 +265,8 @@ public:
             for (int i = 0; i < this->n_atoms; i ++) {
                 output << this->atom_types[i] << "  " << this->atom_positions[i][0] << "  " << this->atom_positions[i][1] << "  " << this->atom_positions[i][2] << endl;
             }
-        }
         this->updateRdfs();
+        }
         output.close();
     }
 
