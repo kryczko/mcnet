@@ -4,7 +4,12 @@
 class Stats {
 	int n_tries = 0;
 	int n_accepts = 0;
+	int r_adjust = 100;
 public:
+	int rAdjust() {
+		return this->r_adjust;
+	}
+
 	void accept() {
 		this->n_accepts ++;
 	}
@@ -14,11 +19,15 @@ public:
 	}
 
 	double rejectRatio() {
-		return (double) (this->n_tries - this->n_accepts) / (this->n_tries);
+		return (double) (this->n_accepts) / (this->r_adjust);
 	}
 
 	int nTries() {
 		return this->n_tries;
+	}
+
+	void reset() {
+		this->n_accepts = 0;
 	}
 };
 

@@ -1,12 +1,16 @@
 cell_dimensions:
-  x: 20.0
-  y: 20.0
-  z: 20.0
+  x: 14.41
+  y: 14.41
+  z: 14.41
 
-xyz_file: someFile.xyz
+xyz_file: 100_water.xyz
 
 seed: 13
-max_trials: 1000000
+max_trials: 1000
+
+rdfs:
+  max_dist: 5.0
+  increment: 0.1
 
 
 
