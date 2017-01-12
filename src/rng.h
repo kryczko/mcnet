@@ -2,6 +2,7 @@
 #define _RNG_H_ 
 
 #include <random>
+#include <chrono>
 
 
 class Rng {
@@ -16,7 +17,7 @@ class Rng {
 			return (int) (max - min) * this->random() + min;
 		}
 
-		Rng(int seed=1) {
+		Rng(int seed=std::chrono::system_clock::now().time_since_epoch().count()) {
 			std::mt19937 gen(seed);
 			this->gen = gen;
 		}

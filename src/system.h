@@ -9,7 +9,9 @@
 #include <cmath>
 #include <sstream>
 #include <stdio.h>
+#include <iomanip>
 #include <unordered_map>
+#include <set>
 
 #include "rng.h"
 #include "stats.h"
@@ -23,26 +25,107 @@ typedef std::unordered_map<string, vector<double>> StrToVecDict;
 class System {
     
     // Max radius an atom can move - this will be adjusted such that the number of rejects is 50%
-    double rmax = 2.0;
+    double rmax = 0.1;
     double beta = 1.0;
     double current_energy;
+    double min_energy = 1e30;
+    double max_energy = -1e30;
+    double avg_distance;
 
     int n_atoms = 0;
+    int n_outputs = 0;
     int max_trials;
     int seed;
     
+    vector<double> msd;
+    vector<double> energies;
+    vector<double> energy_distro;
     std::vector<std::string> atom_types;
     std::vector<std::vector<double>> atom_positions;
+    vector<vector<double>> original_positions;
     vector<vector<double>> lj_forces;
+    vector<vector<double>> aenet_forces;
 
     StrToIntDict atom_counts;
     StrToVecDict rdfs;
+
 
     Rng rng;
     Stats stats;
     Config config;
 
+    ofstream summary_output;
+    ofstream msd_output;
+
 public:
+
+    double min(vector<double> list) {
+        double min_val = 1e30;
+        for (auto elem : list) {
+            if (elem < min_val) {
+                min_val = elem;
+            }
+        }
+        return min_val;
+    }
+
+    double max(vector<double> list) {
+        double max_val = -1e30;
+        for (auto elem : list) {
+            if (elem > max_val) {
+                max_val = elem;
+            }
+        }
+        return max_val;
+    }
+
+    double sum(vector<double> list) {
+        double sum_val = 0;
+        for (auto elem : list) {
+            sum_val += elem;
+        }
+        return sum_val;
+    }
+
+    void updateMsd() {
+        double dist_sum = 0;
+        for (int i = 0; i < this->n_atoms; i ++) {
+            double dx = this->original_positions[i][0] - this->atom_positions[i][0];
+            double dy = this->original_positions[i][1] - this->atom_positions[i][1];
+            double dz = this->original_positions[i][2] - this->atom_positions[i][2];
+            dist_sum += dx * dx + dy * dy + dz * dz;
+        }
+        this->msd.push_back(dist_sum / this->n_atoms);
+        this->msd_output << this->msd[this->msd.size() - 1] << "\n";
+        this->msd_output.flush();
+    }
+
+    void updateEnergyDistro() {
+        int bins = 100;
+        this->energy_distro.clear();
+        this->energy_distro.resize(bins, 0.0);
+        // double min_val = this->min(this->energies);
+        // double diff = this->max(this->energies) - min_val;
+        double min_val = -1.0;
+        double diff = 2.0;
+        if (!diff) {
+            return;
+        }
+        for (int i = 0; i < this->energies.size(); i ++) {
+            int bin = bins * (this->energies[i] + abs(min_val)) / diff;
+            if (bin >= 0 && bin < bins) {
+            // cout << this->energies[i] << " " << min_val << " " << diff << " " << bin << endl;
+            this->energy_distro[bin] ++;
+        }
+        }
+        ofstream output("output/energy_distro.dat");
+        double incr = diff / bins;
+        for (int i = 0; i < bins; i ++) {
+            output << min_val + i*incr << "\t" << this->energy_distro[i]  / this->sum(this->energy_distro) << endl;
+            output << min_val + (i+1)*incr << "\t" << this->energy_distro[i] / this->sum(this->energy_distro) << endl;
+        }
+        output.close();
+    }
 
     void writeXSF() {
         this->ljForces();
@@ -55,9 +138,16 @@ public:
         output  << "PRIMCOORD\n";
         output << this->n_atoms << "  1\n";
         for (int i = 0; i < this->atom_types.size(); i ++) {
-            output << this->atom_types[i] << " " << this->atom_positions[i][0] << " " << this->atom_positions[i][1] << " " << this->atom_positions[i][2] << "  " << this->lj_forces[i][0] << " " << this->lj_forces[i][1] << " " << this->lj_forces[i][2] << endl;
+            output << fixed << setprecision(5) << this->atom_types[i] << " " << this->atom_positions[i][0] << " " << this->atom_positions[i][1] << " " << this->atom_positions[i][2] << "  " << this->lj_forces[i][0] << " " << this->lj_forces[i][1] << " " << this->lj_forces[i][2] << endl;
         }
         output.close();
+    }
+
+    void writeSummary() {
+        if (this->stats.nTries() == 0) {
+            this->summary_output << "# Iteration\tenergy\tavg distance\n\n";
+        }
+        this->summary_output << this->stats.nTries() << "\t" << this->current_energy << "\t" << this->avg_distance << endl;
     }
 
     void ljForces() {
@@ -71,8 +161,11 @@ public:
                     double dx = this->atom_positions[i][0] - this->atom_positions[j][0];
                     double dy = this->atom_positions[i][1] - this->atom_positions[j][1];
                     double dz = this->atom_positions[i][2] - this->atom_positions[j][2];
+                    dx -= this->config.xDim() * this->pbcWrapDist(dx / this->config.xDim());
+                    dy -= this->config.xDim() * this->pbcWrapDist(dy / this->config.xDim());
+                    dz -= this->config.xDim() * this->pbcWrapDist(dz / this->config.xDim());
                     // std::cout << i << " " << j << " " << dr << " " << pow(1 / dr, 12) - pow(1 / dr, 6) << std::endl;
-                    double val = pow(1 / dr, 6) - pow(1 / dr, 12) / ( dr * dr );
+                    double val = pow(2.67 / dr, 6) - pow(2.67 / dr, 12) / ( dr * dr );
                     fx += val * dx;
                     fy += val * dy;
                     fz += val * dz;
@@ -125,9 +218,14 @@ public:
             double Vcell = this->config.xDim() * this->config.yDim() * this->config.zDim();
             output << (i)*this->config.rdfIncrement() + this->config.rdfIncrement()*0.5 << "  ";
             for (auto& elem : this->rdfs) {
-                int atom_count1 = this->atom_counts[string(1, elem.first[0])];
-                int atom_count2 = this->atom_counts[string(1, elem.first[1])];
-                output <<  (Vcell * elem.second[i]) / (this->stats.nTries() * shell * atom_count1 * atom_count2)  << "  ";
+                string type1 = string(1, elem.first[0]);
+                string type2 = string(1, elem.first[1]);
+                int atom_count1 = this->atom_counts[type1];
+                int atom_count2 = this->atom_counts[type2];
+                if (type1 == type2) {
+                    atom_count1 --;
+                }
+                output <<  (Vcell * elem.second[i]) / (this->n_outputs * shell * atom_count1 * atom_count2)  << "  ";
             }
             output << "\n";
         } 
@@ -144,6 +242,38 @@ public:
         system("sudo rm -r memory/");
     }
 
+    double cutOffEnergy(double r) {
+        double max = 1e10;
+        double min = 1e2;
+        return - (max - min) * r + max;
+    }
+
+    void getForces() {
+        this->aenet_forces.clear();
+        ifstream aenet_input("memory/aenet_out.txt");
+        string stuff, name;
+        bool collect = false;
+        double x, y, z, fx, fy, fz;
+        int n_atoms = 0;
+        while(!aenet_input.eof()) {
+            if (collect == false) {
+                aenet_input >> stuff;
+            }
+            if (stuff == "--------------------------------------------------------------------------------------") {
+                collect = true;
+            }
+            if (collect) {
+                aenet_input >> name >> x >> y >> z >> fx >> fy >> fz;
+                vector<double> f = {fx, fy, fz};
+                this->aenet_forces.push_back(f);
+                n_atoms ++;
+            }
+            if (n_atoms == this->n_atoms) {
+                collect = false;
+            }
+        }
+    }
+
     void split(const std::string &s, char delim, std::vector<std::string> &elems) {
         std::stringstream ss;
         ss.str(s);
@@ -153,22 +283,34 @@ public:
         }
     }
 
-    double aenetEnergy(std::vector<std::vector<double>> coords) {
+    vector<int> nearestNeighbors(int id, vector<vector<double>> coords) {
+        vector<int> nns;
+        double cut_off = 2.5;
+        for (int i = 0; i < coords.size(); i ++) {
+            if (i != id) {
+                if (this->r(coords[id], coords[i]) < cut_off) {
+                    nns.push_back(i);
+                }
+            }
+        }
+        return nns;
+    }
+
+    double aenetEnergy(std::vector<std::vector<double>> coords, vector<int> indices) {
         std::ofstream trial("memory/trial.xsf");
         trial << "CRYSTAL\nPRIMVEC\n";
         trial << "  " << this->config.xDim() << "  0.000 0.000\n  0.000  " 
               << this->config.yDim() << "  0.000\n  0.000  0.000  " << this->config.xDim() << std::endl;
         trial << "PRIMCOORD\n";
-        trial << this->n_atoms << " 1\n";
-        for (int i = 0; i < this->n_atoms; i ++) {
-            trial << this->atom_types[i] << " ";
-            for (auto val : this->atom_positions[i]) {
+        trial << coords.size() << " 1\n";
+        for (int i = 0; i < coords.size(); i ++) {
+            trial << this->atom_types[indices[i]] << " ";
+            for (auto val : coords[i]) {
                 trial << val << "  ";
             }
             trial << std::endl;
         }
         trial.close();
-
         system("cd aenet && /opt/aenet-1.0.0/bin/predict.x-1.0.0-gfortran_mpi predict.in ../memory/trial.xsf > ../memory/aenet_out.txt 2>&1 && cd ..");
         std::ifstream energy_file("memory/aenet_out.txt");
         std::string stuff;
@@ -181,6 +323,7 @@ public:
                 energy = stof(items[items.size() - 2]);
             }
         }
+        // system("rm -f memory/*");
         return energy;
     }
 
@@ -206,15 +349,17 @@ public:
     double lennardJonesEnergy(std::vector<std::vector<double>> coords) {
         // v(r) = 4 epsilon (( sigma / r) ^12 - (sigma / r) ^ 6)
         double toten = 0.0;
-        double epsilon = 1.0; 
-        double sigma = 1e-10;
-        double J_to_eV = 1.6e-19; 
+        double epsilon = 2.0; 
+        double shift = (pow(1 / 2.5, 12) - pow(1 / 2.5, 6));
         for (int i = 0; i < coords.size(); i ++) {
+            // vector<int> nns = this->nearestNeighbors(i, coords);
             for (int j = 0; j < coords.size(); j ++) {
                 if (i != j) {
                     double dr = this->r(coords[i], coords[j]);
                     // std::cout << i << " " << j << " " << dr << " " << pow(1 / dr, 12) - pow(1 / dr, 6) << std::endl;
-                    toten += pow(1 / dr, 12) - pow(1 / dr, 6);
+                    if (dr < 2.5) { 
+                        toten += (pow(1 / dr, 12) - pow(1 / dr, 6) - shift);
+                    }
                 }
             }
         }
@@ -224,6 +369,21 @@ public:
         return toten * 2.0 * epsilon;
 
     }
+
+    double localLennardJonesEnergy(std::vector<vector<double>> coords, int index) {
+        double toten = 0.0;
+        double epsilon = 2.0;
+        double shift = (pow(1 / 2.5, 12) - pow(1 / 2.5, 6));
+        for (int i = 0; i < coords.size(); i ++) {
+            if (i != index) {
+                double dr = this->r(coords[index], coords[i]);
+                if (dr < 2.5) {
+                    toten += (pow(1 / dr, 12) - pow(1 / dr, 6) - shift);
+                } 
+            }
+        }
+        return 4.0 * epsilon * toten;
+    } 
 
     void pbc_wrap(double& val, int index) {
         double lat;
@@ -248,29 +408,117 @@ public:
         }
     }
 
-    void run() {
-        ofstream output("output/trajectory.xyz");
+    double maxEnergy() {
+        double max_energy = -1e30;
         while (this->stats.nTries() < this->max_trials) {
-            this->trialMove();
+            this->classicMetropolis(true);
             if (this->stats.nTries() % this->stats.rAdjust() == 0) {
-                if (this->stats.rejectRatio() > 0.5) {
+                if (this->stats.acceptRatio() > 0.5) {
                     this->rmax *= 1.05;
                 } else {
                     this->rmax *= 0.95;
                 }
-                std::cout << "Iteration: " << this->stats.nTries() << " Reject ratio: " << this->stats.rejectRatio() << " Rmax: " << this->rmax << "  Energy: " << this->current_energy << std::endl;
+                std::cout << "Max search - Iteration: " << this->stats.nTries() << " Accept ratio: " << this->stats.acceptRatio() << " Rmax: " << this->rmax << "  Energy: " << this->current_energy << std::endl;
                 this->stats.reset();
             }
-            output << this->n_atoms << "\n\n";
-            for (int i = 0; i < this->n_atoms; i ++) {
-                output << this->atom_types[i] << "  " << this->atom_positions[i][0] << "  " << this->atom_positions[i][1] << "  " << this->atom_positions[i][2] << endl;
+            if (this->current_energy > max_energy) {
+                max_energy = this->current_energy;
             }
-        this->updateRdfs();
         }
+        this->reset();
+        return max_energy;
+    }
+
+    void reset() {
+        this->rmax = 0.1;
+        this->stats.globalReset();
+        this->readXyzFile(this->config.xyzFile());
+    }
+
+    double minEnergy() {
+        double min_energy = 1e30;
+        while (this->stats.nTries() < this->max_trials) {
+            this->classicMetropolis();
+            if (this->stats.nTries() % this->stats.rAdjust() == 0) {
+                if (this->stats.acceptRatio() > 0.5) {
+                    this->rmax *= 1.05;
+                } else {
+                    this->rmax *= 0.95;
+                }
+                std::cout << "Min search - Iteration: " << this->stats.nTries() << " Accept ratio: " << this->stats.acceptRatio() << " Rmax: " << this->rmax << "  Energy: " << this->current_energy << std::endl;
+                this->stats.reset();
+            }
+            if (this->current_energy < min_energy) {
+                min_energy = this->current_energy;
+            }
+        }
+        this->reset();
+        return min_energy;
+    }
+
+    void adjustR() {
+        if (this->stats.acceptRatio() > 0.5) {
+            this->rmax *= 1.05;
+        } else {
+            this->rmax *= 0.95;
+        }
+    }
+
+    void run() {
+        ofstream output("output/trajectory.xyz");
+        while (this->stats.nTries() < this->max_trials) {
+            this->classicMetropolis();
+            if (this->stats.nTries() % this->stats.rAdjust() == 0) {
+                // this->adjustR();
+                std::cout << "Iteration: " << this->stats.nTries() << " Accept ratio: " << this->stats.acceptRatio() << " Rmax: " << this->rmax << "  Energy: " << this->current_energy / this->n_atoms << std::endl;
+                output << this->n_atoms << "\n\n";
+                for (int i = 0; i < this->n_atoms; i ++) {
+                    output << this->atom_types[i] << "  " << this->atom_positions[i][0] << "  " << this->atom_positions[i][1] << "  " << this->atom_positions[i][2] << endl;
+                }
+                // this->writeSummary();
+                this->updateRdfs();
+                // this->updateMsd();
+                this->n_outputs ++;
+                this->stats.reset();
+                this->current_energy = this->lennardJonesEnergy(this->atom_positions);
+                this->writeXSF();
+            }
+            // this->updateEnergyDistro();
+        }
+        cout << "Min energy: " << this->min_energy << "  Max energy: " << this->max_energy << endl;
         output.close();
     }
 
-    void trialMove() {
+    void runTargetedEnergy() {
+        double min_energy = -1.0;
+        double max_energy = 1.0;
+        int bins = 100;
+        int incr = this->max_trials / bins;
+        double step = ( max_energy - min_energy ) / bins;
+        while (this->stats.nTries() < this->max_trials) {
+            if (this->stats.nTries() % incr == 0) {
+                this->rmax = 0.1;
+                this->readXyzFile(this->config.xyzFile());
+            }
+            int which = this->stats.nTries() / incr;
+            double e_target = min_energy + which * step;
+            this->targetedEnergyMetropolis(e_target);
+            if (this->stats.nTries() % this->stats.rAdjust() == 0) {
+                if (this->stats.acceptRatio() > 0.5) {
+                    this->rmax *= 1.05;
+                } else {
+                    this->rmax *= 0.95;
+                }
+                std::cout << "Target E: " << e_target << " Iteration: " << this->stats.nTries() << " Accept ratio: " << this->stats.acceptRatio() << " Rmax: " << this->rmax << "  Energy: " << this->current_energy / this->n_atoms << std::endl;
+                this->stats.reset();
+            }
+            this->updateEnergyDistro();
+            this->writeSummary();
+            this->updateRdfs();
+        }
+    }
+
+    void targetedEnergyMetropolis(double etarget) {
         int atom_index = this->rng.randint(0, this->n_atoms);
         std::vector<std::vector<double>> trial_atom_positions = this->atom_positions;
         for (int i = 0; i < 3; i ++) {
@@ -279,7 +527,7 @@ public:
         }
 
         double next_energy = this->lennardJonesEnergy(trial_atom_positions);
-        double delta_e = next_energy - this->current_energy;
+        double delta_e = abs(next_energy - etarget) - abs(this->current_energy - etarget);
         double delta_e_beta = delta_e * this->beta;
         if (delta_e_beta < 75.0) {
             if (delta_e_beta < 0.0) {
@@ -292,17 +540,103 @@ public:
                 this->stats.accept();
             }
         }
+        this->energies.push_back(this->current_energy);
+        this->avg_distance = this->avgDistance();
         this->writeXSF();
         this->stats.increment();
     }
 
+    double avgDistance() {
+        double dist_sum = 0;
+        int counter = 0;
+        for (int i = 0; i < this->n_atoms; i ++) {
+            for (int j = 0; j < this->n_atoms; j ++) {
+                if (i != j) {
+                    dist_sum += this->r(this->atom_positions[i], this->atom_positions[j]);
+                    counter ++;
+                }
+            }
+        }
+        return dist_sum / counter;
+    }
+
+    void classicMetropolis(bool flipped=false) {
+        // int atom_index = this->rng.randint(0, this->n_atoms);
+        // std::vector<std::vector<double>> trial_atom_positions = this->atom_positions;
+        for (int a = 0; a < this->n_atoms; a++ ) {
+            std::vector<std::vector<double>> trial_atom_positions = this->atom_positions;
+
+            for (int i = 0; i < 3; i ++) {
+                trial_atom_positions[a][i] += (2.0 * this->rng.random() - 1) * this->rmax;
+            // pbc_wrap(trial_atom_positions[atom_index][i], i);
+            }
+        // }
+        
+        // vector<vector<double>> old_subset_positions, new_subset_positions;
+        // vector<int> old_nns = this->nearestNeighbors(atom_index, this->atom_positions);
+        // vector<int> new_nns = this->nearestNeighbors(atom_index, trial_atom_positions);
+        // set<int> all_nns;
+        // vector<int> vec_all_nns;
+        
+        // for (auto nn : old_nns) {
+        //     all_nns.insert(nn);
+        // }
+        
+        // for (auto nn : new_nns) {
+        //     all_nns.insert(nn);
+        // }
+
+        // old_subset_positions.push_back(this->atom_positions[atom_index]);
+        // new_subset_positions.push_back(trial_atom_positions[atom_index]);
+        // vec_all_nns.push_back(atom_index);
+
+        // for (auto nn : all_nns) {
+        //     vec_all_nns.push_back(nn);
+        //     old_subset_positions.push_back(this->atom_positions[nn]);
+        //     new_subset_positions.push_back(trial_atom_positions[nn]);
+        // }
+            double next_energy = this->current_energy + (this->localLennardJonesEnergy(trial_atom_positions, a) - this->localLennardJonesEnergy(this->atom_positions, a));
+            // cout << next_energy << endl;
+            // double next_energy = this->current_energy + ( this->aenetEnergy(new_subset_positions, vec_all_nns) - this->aenetEnergy(old_subset_positions, vec_all_nns) );
+            double delta_e = next_energy - this->current_energy;
+            double delta_e_beta = delta_e * this->beta;
+
+            if (delta_e_beta < 75.0) {
+                if (delta_e_beta < 0.0) {
+                    this->current_energy = next_energy;
+                    this->atom_positions = trial_atom_positions;
+                    this->stats.accept();
+                    // this->getForces();
+                } else if (exp( - delta_e_beta ) > this->rng.random() ) {
+                    this->current_energy = next_energy;
+                    this->atom_positions = trial_atom_positions;
+                    this->stats.accept();
+                    // this->getForces();
+                }
+            }
+    /*        if (this->current_energy < this->min_energy) {
+                this->min_energy = this->current_energy;
+            }
+
+            if (this->current_energy > this->max_energy) {
+                this->max_energy = this->current_energy;
+            }*/
+            // this->writeXSF();
+            // this->energies.push_back(this->current_energy);
+            // this->avg_distance = this->avgDistance();
+            this->stats.increment();
+        }
+    }
+    
     void readXyzFile(std::string filename) {
         std::ifstream xyzfile(filename.c_str());
         if (!xyzfile) {
             std::cout << "ERROR: We could not open your XYZ file. Please check the input file 'input.yaml' and verify your XYZ file. Exiting...\n";
             exit(-1);
         }
-        xyzfile >> n_atoms;
+        this->atom_types.clear();
+        this->atom_positions.clear();
+        xyzfile >> this->n_atoms;
         std::string aname;
         double x, y, z;
         while (!xyzfile.eof()) {
@@ -324,9 +658,15 @@ public:
                 this->atom_counts.at(atom_name) ++;
             }
         }
-
-        std::cout << "INFO: Read in XYZ file.\n";
+        vector<int> all_indices;
+        for (int i = 0; i < this->n_atoms; i ++) {
+            all_indices.push_back(i);
+        }
+        // std::cout << "INFO: Read in XYZ file.\n";
+        // this->current_energy = this->aenetEnergy(this->atom_positions, all_indices);
+        // this->getForces();
         this->current_energy = this->lennardJonesEnergy(this->atom_positions);
+        this->original_positions = this->atom_positions;
     }
 
     void initDistros() {
@@ -346,15 +686,19 @@ public:
     System(Config config) {
         this->config = config;
         this->seed = config.getSeed();
-        this->rng = Rng(seed);
+        this->rng = Rng();
         this->max_trials = config.getMaxTrials();
         this->allocateRAMDisk();
         this->readXyzFile(config.xyzFile());
+        this->summary_output.open("output/summary.dat");
+        this->msd_output.open("output/msd.dat");
         this->initDistros();
     }
 
     ~System() {
         this->deallocateRAMDisk();
+        this->summary_output.close();
+        this->msd_output.close();
     }
 
 };
