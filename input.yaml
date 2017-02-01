@@ -1,15 +1,15 @@
 cell_dimensions:
-  x: 12.0400
-  y: 12.0400
-  z: 12.0400
+  x: 8.6662
+  y: 8.6662
+  z: 8.6662
 
-xyz_file: start.xyz
+xyz_file: H_1000K_256.xyz
 
 seed: 13
 max_trials: 1000000
 
 rdfs:
-  max_dist: 6.0
+  max_dist: 4.0
   increment: 0.1
 
 

@@ -1,3 +1,3 @@
 #!/bin/bash
 
-cd build && make && cd .. && ./build/mcnet
+cd build && make && cd .. && ./build/src/mcnet

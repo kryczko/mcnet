@@ -4,7 +4,7 @@
 class Stats {
 	int n_tries = 0;
 	int n_accepts = 0;
-	int r_adjust = 1000;
+	int r_adjust = 108;
 public:
 	int rAdjust() {
 		return this->r_adjust;
